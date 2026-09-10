@@ -179,6 +179,13 @@ impl Repo {
     }
 
     pub fn read_blob(&self, oid: &git_oid) -> Result<Vec<u8>, String> {
+        self.with_blob(oid, |slice| slice.to_vec())
+    }
+
+    pub fn with_blob<F, R>(&self, oid: &git_oid, f: F) -> Result<R, String>
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
         let mut blob: *mut git_blob = std::ptr::null_mut();
         let code = unsafe { git_blob_lookup(&mut blob, self.raw, oid) };
         if code != 0 {
@@ -191,14 +198,15 @@ impl Repo {
 
         let size = unsafe { git_blob_rawsize(blob) } as usize;
         let ptr = unsafe { git_blob_rawcontent(blob) } as *const u8;
-        let data = if !ptr.is_null() && size > 0 {
-            unsafe { std::slice::from_raw_parts(ptr, size).to_vec() }
+        let res = if !ptr.is_null() && size > 0 {
+            let slice = unsafe { std::slice::from_raw_parts(ptr, size) };
+            f(slice)
         } else {
-            Vec::new()
+            f(&[])
         };
 
         unsafe { git_blob_free(blob) };
-        Ok(data)
+        Ok(res)
     }
 
     pub fn lookup_tree(&self, oid: &git_oid) -> Result<Tree, String> {
@@ -276,18 +284,17 @@ impl Tree {
         };
 
         unsafe extern "C" fn walk_cb(
-            root: *const c_char,
+            _root: *const c_char,
             entry: *const git_tree_entry,
             payload: *mut c_void,
         ) -> c_int {
             let p = &mut *(payload as *mut Payload);
             let type_ = git_tree_entry_type(entry);
             if type_ == git_object_t::GIT_OBJECT_BLOB {
-                let root_str = CStr::from_ptr(root).to_string_lossy();
-                let name_str = CStr::from_ptr(git_tree_entry_name(entry)).to_string_lossy();
-                let full_path = format!("{}{}", root_str, name_str);
+                let name_ptr = git_tree_entry_name(entry);
+                let name_str = CStr::from_ptr(name_ptr).to_string_lossy();
                 let oid = &*git_tree_entry_id(entry);
-                if let Err(e) = (p.cb)(&full_path, oid) {
+                if let Err(e) = (p.cb)(&name_str, oid) {
                     p.err = Some(e);
                     return -1;
                 }

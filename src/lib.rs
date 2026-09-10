@@ -51,6 +51,7 @@ pub unsafe extern "C" fn kart_init_c_api(
         duckdb_table_function_add_parameter(func, varchar_type);
         duckdb_table_function_set_bind(func, table_function::read_kart_bind);
         duckdb_table_function_set_init(func, table_function::read_kart_init);
+        duckdb_table_function_set_local_init(func, table_function::read_kart_local_init);
         duckdb_table_function_set_function(func, table_function::read_kart_scan);
 
         let res = duckdb_register_table_function(con, func);
@@ -70,6 +71,7 @@ pub unsafe extern "C" fn kart_init_c_api(
         duckdb_table_function_add_parameter(func, varchar_type);
         duckdb_table_function_set_bind(func, table_function::read_kart_bind);
         duckdb_table_function_set_init(func, table_function::read_kart_init);
+        duckdb_table_function_set_local_init(func, table_function::read_kart_local_init);
         duckdb_table_function_set_function(func, table_function::read_kart_scan);
 
         let res = duckdb_register_table_function(con, func);

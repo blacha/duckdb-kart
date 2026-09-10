@@ -84,9 +84,68 @@ pub fn base64_urlsafe_decode(mut input: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+pub fn base64_urlsafe_decode_slice<'a>(mut input: &str, out: &'a mut [u8]) -> Result<&'a [u8], String> {
+    if let Some(rest) = input.strip_prefix("base64:") {
+        input = rest;
+    }
+    let input = input.trim_end_matches('=');
+    let mut buf = 0u32;
+    let mut bits = 0u32;
+    let mut out_idx = 0;
+
+    for &b in input.as_bytes() {
+        let val = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'-' | b'+' => 62,
+            b'_' | b'/' => 63,
+            b' ' | b'\r' | b'\n' | b'\t' => continue,
+            _ => return Err(format!("Invalid base64 character: {}", b as char)),
+        } as u32;
+
+        buf = (buf << 6) | val;
+        bits += 6;
+
+        if bits >= 8 {
+            bits -= 8;
+            if out_idx >= out.len() {
+                return Err("Base64 output buffer overflow".to_string());
+            }
+            out[out_idx] = (buf >> bits) as u8;
+            out_idx += 1;
+            buf &= (1 << bits) - 1;
+        }
+    }
+
+    Ok(&out[..out_idx])
+}
+
+#[inline]
+pub fn decode_pk_into<'a>(
+    filename: &str,
+    byte_buf: &'a mut [u8],
+    out_vals: &mut [Value<'a>; 4],
+) -> Result<usize, String> {
+    let bytes = base64_urlsafe_decode_slice(filename, byte_buf)?;
+    let val = msgpack::decode(bytes)?;
+    match val {
+        Value::Array(arr) => {
+            let n = arr.len().min(out_vals.len());
+            for i in 0..n {
+                out_vals[i] = arr[i].clone();
+            }
+            Ok(n)
+        }
+        single => {
+            out_vals[0] = single;
+            Ok(1)
+        }
+    }
+}
+
 pub fn decode_pk_from_filename(filename: &str) -> Result<Vec<Value<'static>>, String> {
     let bytes = base64_urlsafe_decode(filename)?;
-    // Leak or copy so Value can have 'static lifetime if needed
     let boxed: &'static [u8] = Box::leak(bytes.into_boxed_slice());
     let val = msgpack::decode(boxed)?;
     match val {
@@ -125,11 +184,24 @@ pub struct DatasetInfo {
     pub geometry_type: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ColumnSource {
+    Pk(usize),
+    NonPk(usize),
+    NotFound,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledLegend {
+    pub sources: Vec<ColumnSource>,
+}
+
 pub struct Dataset {
     pub name: String,
     pub schema: Vec<ColumnSchema>,
-    pub legends: HashMap<String, Legend>,
-    pub features: Vec<(String, git_oid)>, // (relative_path, blob_oid)
+    pub legends: HashMap<String, CompiledLegend>,
+    pub single_legend: Option<CompiledLegend>,
+    pub features: Vec<(String, git_oid)>, // (filename, blob_oid)
 }
 
 impl Dataset {
@@ -144,7 +216,7 @@ impl Dataset {
         let schema: Vec<ColumnSchema> = serde_json::from_slice(&schema_raw)
             .map_err(|e| format!("Failed to parse schema.json: {}", e))?;
 
-        // 2. Read legends
+        // 2. Read legends and precompile column sources
         let legend_dir_path = format!("{}/legend", meta_prefix);
         let mut legends = HashMap::new();
         if let Ok((legend_dir_oid, _)) = head_tree.get_entry_bypath(&legend_dir_path) {
@@ -154,7 +226,23 @@ impl Dataset {
                     if let Some((hash, oid, _)) = legend_tree.get_entry_by_index(i) {
                         if let Ok(blob_bytes) = repo.read_blob(&oid) {
                             if let Ok(legend) = Legend::parse(&blob_bytes) {
-                                legends.insert(hash, legend);
+                                let sources: Vec<ColumnSource> = schema
+                                    .iter()
+                                    .map(|col| {
+                                        if let Some(pos) =
+                                            legend.pk_columns.iter().position(|id| id == &col.id)
+                                        {
+                                            ColumnSource::Pk(pos)
+                                        } else if let Some(pos) =
+                                            legend.non_pk_columns.iter().position(|id| id == &col.id)
+                                        {
+                                            ColumnSource::NonPk(pos)
+                                        } else {
+                                            ColumnSource::NotFound
+                                        }
+                                    })
+                                    .collect();
+                                legends.insert(hash, CompiledLegend { sources });
                             }
                         }
                     }
@@ -162,13 +250,19 @@ impl Dataset {
             }
         }
 
+        let single_legend = if legends.len() == 1 {
+            legends.values().next().cloned()
+        } else {
+            None
+        };
+
         // 3. Collect features
         let feature_dir_path = format!("{}/.table-dataset/feature", dataset_name);
         let mut features = Vec::new();
         if let Ok((feature_dir_oid, _)) = head_tree.get_entry_bypath(&feature_dir_path) {
             if let Ok(feature_tree) = repo.lookup_tree(&feature_dir_oid) {
-                feature_tree.walk_blobs(|path, oid| {
-                    features.push((path.to_string(), *oid));
+                feature_tree.walk_blobs(|filename, oid| {
+                    features.push((filename.to_string(), *oid));
                     Ok(())
                 })?;
             }
@@ -178,6 +272,7 @@ impl Dataset {
             name: dataset_name.to_string(),
             schema,
             legends,
+            single_legend,
             features,
         })
     }
