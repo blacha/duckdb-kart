@@ -124,6 +124,7 @@ extern "C" {
     pub fn duckdb_data_chunk_set_size(chunk: duckdb_data_chunk, size: idx_t);
 
     pub fn duckdb_vector_get_data(vector: duckdb_vector) -> *mut c_void;
+    pub fn duckdb_vector_ensure_validity_writable(vector: duckdb_vector);
     pub fn duckdb_vector_get_validity(vector: duckdb_vector) -> *mut u64;
     pub fn duckdb_validity_set_row_validity(validity: *mut u64, row: idx_t, valid: bool);
     pub fn duckdb_validity_set_row_invalid(validity: *mut u64, row: idx_t);

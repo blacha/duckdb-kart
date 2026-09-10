@@ -138,6 +138,7 @@ pub unsafe extern "C" fn read_kart_scan(info: duckdb_function_info, output: duck
     for c in 0..num_cols {
         let vec = duckdb_data_chunk_get_vector(output, c as idx_t);
         let ptr = duckdb_vector_get_data(vec);
+        duckdb_vector_ensure_validity_writable(vec);
         let val = duckdb_vector_get_validity(vec);
         vectors.push(vec);
         data_ptrs.push(ptr);
@@ -394,6 +395,8 @@ pub unsafe extern "C" fn read_kart_datasets_scan(info: duckdb_function_info, out
     let vec_crs = duckdb_data_chunk_get_vector(output, 3);
     let vec_geom_type = duckdb_data_chunk_get_vector(output, 4);
 
+    duckdb_vector_ensure_validity_writable(vec_crs);
+    duckdb_vector_ensure_validity_writable(vec_geom_type);
     let val_crs = duckdb_vector_get_validity(vec_crs);
     let val_geom_type = duckdb_vector_get_validity(vec_geom_type);
     let count_ptr = duckdb_vector_get_data(vec_count) as *mut i64;
