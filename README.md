@@ -34,7 +34,28 @@ duckdb -unsigned
 LOAD 'duckdb_kart/kart.duckdb_extension';
 ```
 
-### 1. Discover Datasets in a Kart Repository
+### 1. Export Dataset Directly to Parquet
+
+Export any Kart dataset straight to Parquet in a single SQL statement:
+
+```sql
+COPY (SELECT * FROM read_kart('path/to/repo', 'dataset_name'))
+TO 'dataset.parquet' (FORMAT PARQUET);
+```
+
+Or from the command line as a one-liner:
+
+```bash
+duckdb -unsigned -c "
+  LOAD 'duckdb_kart/kart.duckdb_extension';
+  COPY (SELECT * FROM read_kart('nz-building-outlines', 'nz_building_outlines'))
+  TO 'nz_buildings.parquet' (FORMAT PARQUET);
+"
+```
+
+> **Performance**: Achieves **135,000+ rows/second** sustained streaming from Git packfiles directly into compressed Parquet.
+
+### 2. Discover Datasets in a Kart Repository
 
 ```sql
 SELECT * FROM read_kart_datasets('kart-test');
@@ -51,7 +72,7 @@ Output:
 └────────────────────────────────┴──────────────┴───────────────┴──────────────┴───────────────┘
 ```
 
-### 2. Query a Dataset
+### 3. Query a Dataset
 
 Pass `repo_path` and `dataset_name`:
 
@@ -88,7 +109,7 @@ Output:
 └──────────────┴──────────────┴──────────────┘
 ```
 
-### 3. Spatial Queries with DuckDB Spatial Extension
+### 4. Spatial Queries with DuckDB Spatial Extension
 
 When the DuckDB `spatial` extension is installed:
 
