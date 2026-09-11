@@ -35,11 +35,23 @@ def make_footer(platform_tag: str, duckdb_version: str = "v1.2.0", ext_version: 
     signature = b"\x00" * 256
     return chunk0 + chunk1 + chunk2 + chunk3 + chunk4 + chunk5 + chunk6 + chunk7 + signature
 
+def get_cargo_version() -> str:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    cargo_path = os.path.join(script_dir, "Cargo.toml")
+    if os.path.exists(cargo_path):
+        with open(cargo_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("version ="):
+                    ver = line.split("=")[1].strip().strip('"').strip("'")
+                    return f"v{ver}"
+    return "v0.1.0"
+
 def main():
+    default_version = get_cargo_version()
     parser = argparse.ArgumentParser(description="Package DuckDB extension")
     parser.add_argument("--platform", default=None, help="DuckDB platform tag (e.g. osx_arm64, linux_amd64)")
     parser.add_argument("--duckdb-version", default="v1.2.0", help="Target DuckDB version")
-    parser.add_argument("--ext-version", default="v0.1.0", help="Extension version")
+    parser.add_argument("--ext-version", default=default_version, help=f"Extension version (default: {default_version})")
     parser.add_argument("--target", default=None, help="Cargo target triple")
     parser.add_argument("--output", default=None, help="Output extension path")
     parser.add_argument("--no-build", action="store_true", help="Skip running cargo build")

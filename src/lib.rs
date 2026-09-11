@@ -9,7 +9,7 @@ use std::ffi::{c_char, CString};
 
 #[no_mangle]
 pub extern "C" fn kart_version() -> *const c_char {
-    static VERSION: &[u8] = b"v0.1.0\0";
+    static VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), "\0");
     VERSION.as_ptr() as *const c_char
 }
 

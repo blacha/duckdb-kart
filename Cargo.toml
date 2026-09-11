@@ -10,3 +10,9 @@ crate-type = ["cdylib", "rlib"]
 gix = "0.67"
 serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
+
+[package.metadata.release]
+tag-prefix = "v"
+tag-name = "v{{version}}"
+publish = false
+push = true
