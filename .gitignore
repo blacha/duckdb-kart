@@ -1,2 +1,4 @@
 target/
 *.duckdb_extension
+*.duckdb_extension.gz
+*.parquet

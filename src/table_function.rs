@@ -67,7 +67,7 @@ pub unsafe extern "C" fn read_kart_bind(info: duckdb_bind_info) {
         }
     };
 
-    let dataset = match Dataset::load(&repo, &dataset_name) {
+    let dataset = match Dataset::load(&repo, &repo_path, &dataset_name) {
         Ok(d) => Arc::new(d),
         Err(e) => {
             let err = CString::new(format!("Failed to load dataset '{}': {}", dataset_name, e)).unwrap();
@@ -120,8 +120,9 @@ pub unsafe extern "C" fn read_kart_init(info: duckdb_init_info) {
 
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
-        .unwrap_or(8)
+        .unwrap_or(4)
         .min((total_features + 2047) / 2048)
+        .min(8)
         .max(1);
 
     duckdb_init_set_max_threads(info, threads as idx_t);
@@ -415,7 +416,7 @@ pub unsafe extern "C" fn read_kart_datasets_bind(info: duckdb_bind_info) {
         }
     };
 
-    let datasets = match kart::list_datasets(&repo) {
+    let datasets = match kart::list_datasets(&repo, &repo_path) {
         Ok(d) => d,
         Err(e) => {
             let err = CString::new(format!("Failed to list datasets in '{}': {}", repo_path, e)).unwrap();

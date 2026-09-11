@@ -4,14 +4,14 @@ A native DuckDB extension written in Rust to read geospatial datasets directly f
 
 ## Features
 
-- **Direct Git Object Scanning**: Reads Table V3 datasets directly from Git trees and blobs using `libgit2`.
+- **Pure Rust Git Engine**: Reads Table V3 datasets directly from Git trees and packfiles using `gix` (`gitoxide`) with **zero external C or dynamic library dependencies**.
 - **Automatic Schema Mapping**: Inspects dataset `schema.json` and maps Kart data types (`integer`, `float`, `text`, `boolean`, `geometry`, `blob`, etc.) directly into native DuckDB types.
 - **OGC Standard WKB Geometry**: Automatically parses GeoPackage binary envelopes and converts geometry fields to standard OGC Well-Known Binary (WKB) blobs, ready for use with DuckDB's `spatial` extension (`ST_GeomFromWKB(geom)`).
 - **Multi-Dataset Discovery**: Inspect repositories and list available datasets, feature counts, geometry types, and coordinate reference systems (CRS).
 
 ## Building & Packaging
 
-Ensure Rust and `libgit2` (e.g. via Homebrew: `brew install libgit2`) are installed.
+Requires only Rust and Python:
 
 ```bash
 cd duckdb_kart

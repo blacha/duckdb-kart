@@ -1,4 +1,4 @@
-use crate::git::{git_oid, Repo};
+use crate::git::{git_object_t, git_oid, Repo};
 use crate::msgpack::{self, Value};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -205,7 +205,7 @@ pub struct Dataset {
 }
 
 impl Dataset {
-    pub fn load(repo: &Repo, dataset_name: &str) -> Result<Self, String> {
+    pub fn load(repo: &Repo, repo_path: &str, dataset_name: &str) -> Result<Self, String> {
         let head_tree = repo.get_head_tree()?;
         let meta_prefix = format!("{}/.table-dataset/meta", dataset_name);
 
@@ -256,17 +256,13 @@ impl Dataset {
             None
         };
 
-        // 3. Collect features
+        // 3. Collect features in parallel
         let feature_dir_path = format!("{}/.table-dataset/feature", dataset_name);
-        let mut features = Vec::new();
-        if let Ok((feature_dir_oid, _)) = head_tree.get_entry_bypath(&feature_dir_path) {
-            if let Ok(feature_tree) = repo.lookup_tree(&feature_dir_oid) {
-                feature_tree.walk_blobs(|filename, oid| {
-                    features.push((filename.to_string(), *oid));
-                    Ok(())
-                })?;
-            }
-        }
+        let features = if let Ok((feature_dir_oid, _)) = head_tree.get_entry_bypath(&feature_dir_path) {
+            collect_features_parallel(repo, repo_path, &feature_dir_oid)?
+        } else {
+            Vec::new()
+        };
 
         Ok(Self {
             name: dataset_name.to_string(),
@@ -278,7 +274,204 @@ impl Dataset {
     }
 }
 
-pub fn list_datasets(repo: &Repo) -> Result<Vec<DatasetInfo>, String> {
+pub fn collect_features_parallel(
+    repo: &Repo,
+    repo_path: &str,
+    root_tree_oid: &git_oid,
+) -> Result<Vec<(String, git_oid)>, String> {
+    let mut current_trees = vec![*root_tree_oid];
+    let mut direct_blobs = Vec::new();
+    let target_subtrees = 64;
+
+    while !current_trees.is_empty() && current_trees.len() < target_subtrees {
+        let mut next_trees = Vec::new();
+        let mut expanded = false;
+        for tree_oid in current_trees.drain(..) {
+            if let Ok(tree) = repo.lookup_tree(&tree_oid) {
+                let count = tree.entry_count();
+                for i in 0..count {
+                    if let Some((name, oid, type_)) = tree.get_entry_by_index(i) {
+                        if type_ == git_object_t::GIT_OBJECT_TREE {
+                            next_trees.push(oid);
+                            expanded = true;
+                        } else if type_ == git_object_t::GIT_OBJECT_BLOB {
+                            direct_blobs.push((name, oid));
+                        }
+                    }
+                }
+            }
+        }
+        if !expanded {
+            break;
+        }
+        current_trees = next_trees;
+    }
+
+    if current_trees.is_empty() {
+        return Ok(direct_blobs);
+    }
+
+    if current_trees.len() <= 1 {
+        let mut all = direct_blobs;
+        for oid in current_trees {
+            if let Ok(tree) = repo.lookup_tree(&oid) {
+                let _ = tree.walk_blobs(|name, blob_oid| {
+                    all.push((name.to_string(), *blob_oid));
+                    Ok(())
+                });
+            }
+        }
+        return Ok(all);
+    }
+
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8)
+        .min(current_trees.len())
+        .min(16);
+
+    let chunk_size = (current_trees.len() + num_threads - 1) / num_threads;
+    let chunks: Vec<Vec<git_oid>> = current_trees
+        .chunks(chunk_size)
+        .map(|c| c.to_vec())
+        .collect();
+
+    let mut thread_results = Vec::with_capacity(chunks.len());
+
+    std::thread::scope(|s| {
+        let mut handles = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            handles.push(s.spawn(move || {
+                let thread_repo = match Repo::open(repo_path) {
+                    Ok(r) => r,
+                    Err(_) => return Vec::new(),
+                };
+                let mut local_features = Vec::new();
+                for subtree_oid in chunk {
+                    if let Ok(tree) = thread_repo.lookup_tree(&subtree_oid) {
+                        let _ = tree.walk_blobs(|name, oid| {
+                            local_features.push((name.to_string(), *oid));
+                            Ok(())
+                        });
+                    }
+                }
+                local_features
+            }));
+        }
+
+        for h in handles {
+            if let Ok(res) = h.join() {
+                thread_results.push(res);
+            }
+        }
+    });
+
+    let total_count = direct_blobs.len() + thread_results.iter().map(|v| v.len()).sum::<usize>();
+    let mut all_features = Vec::with_capacity(total_count);
+    all_features.extend(direct_blobs);
+    for mut res in thread_results {
+        all_features.append(&mut res);
+    }
+
+    Ok(all_features)
+}
+
+pub fn count_features_parallel(
+    repo: &Repo,
+    repo_path: &str,
+    root_tree_oid: &git_oid,
+) -> usize {
+    let mut current_trees = vec![*root_tree_oid];
+    let mut direct_blob_count = 0;
+    let target_subtrees = 64;
+
+    while !current_trees.is_empty() && current_trees.len() < target_subtrees {
+        let mut next_trees = Vec::new();
+        let mut expanded = false;
+        for tree_oid in current_trees.drain(..) {
+            if let Ok(tree) = repo.lookup_tree(&tree_oid) {
+                let count = tree.entry_count();
+                for i in 0..count {
+                    if let Some((_, oid, type_)) = tree.get_entry_by_index(i) {
+                        if type_ == git_object_t::GIT_OBJECT_TREE {
+                            next_trees.push(oid);
+                            expanded = true;
+                        } else if type_ == git_object_t::GIT_OBJECT_BLOB {
+                            direct_blob_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+        if !expanded {
+            break;
+        }
+        current_trees = next_trees;
+    }
+
+    if current_trees.is_empty() {
+        return direct_blob_count;
+    }
+
+    if current_trees.len() <= 1 {
+        let mut count = direct_blob_count;
+        for oid in current_trees {
+            if let Ok(tree) = repo.lookup_tree(&oid) {
+                let _ = tree.walk_blobs(|_, _| {
+                    count += 1;
+                    Ok(())
+                });
+            }
+        }
+        return count;
+    }
+
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8)
+        .min(current_trees.len())
+        .min(16);
+
+    let chunk_size = (current_trees.len() + num_threads - 1) / num_threads;
+    let chunks: Vec<Vec<git_oid>> = current_trees
+        .chunks(chunk_size)
+        .map(|c| c.to_vec())
+        .collect();
+
+    let mut thread_counts = Vec::with_capacity(chunks.len());
+
+    std::thread::scope(|s| {
+        let mut handles = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            handles.push(s.spawn(move || {
+                let thread_repo = match Repo::open(repo_path) {
+                    Ok(r) => r,
+                    Err(_) => return 0,
+                };
+                let mut local_count = 0;
+                for subtree_oid in chunk {
+                    if let Ok(tree) = thread_repo.lookup_tree(&subtree_oid) {
+                        let _ = tree.walk_blobs(|_, _| {
+                            local_count += 1;
+                            Ok(())
+                        });
+                    }
+                }
+                local_count
+            }));
+        }
+
+        for h in handles {
+            if let Ok(cnt) = h.join() {
+                thread_counts.push(cnt);
+            }
+        }
+    });
+
+    direct_blob_count + thread_counts.iter().sum::<usize>()
+}
+
+pub fn list_datasets(repo: &Repo, repo_path: &str) -> Result<Vec<DatasetInfo>, String> {
     let head_tree = repo.get_head_tree()?;
     let count = head_tree.entry_count();
     let mut datasets = Vec::new();
@@ -301,15 +494,11 @@ pub fn list_datasets(repo: &Repo) -> Result<Vec<DatasetInfo>, String> {
                 };
 
                 let feature_path = format!("{}/.table-dataset/feature", name);
-                let mut feat_count = 0;
-                if let Ok((feat_oid, _)) = head_tree.get_entry_bypath(&feature_path) {
-                    if let Ok(feat_tree) = repo.lookup_tree(&feat_oid) {
-                        let _ = feat_tree.walk_blobs(|_, _| {
-                            feat_count += 1;
-                            Ok(())
-                        });
-                    }
-                }
+                let feat_count = if let Ok((feat_oid, _)) = head_tree.get_entry_bypath(&feature_path) {
+                    count_features_parallel(repo, repo_path, &feat_oid)
+                } else {
+                    0
+                };
 
                 datasets.push(DatasetInfo {
                     name,

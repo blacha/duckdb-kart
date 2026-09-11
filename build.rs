@@ -1,5 +1,7 @@
 fn main() {
-    println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
-    println!("cargo:rustc-link-lib=git2");
-    println!("cargo:rustc-link-lib=duckdb");
+    #[cfg(target_os = "macos")]
+    {
+        println!("cargo:rustc-link-arg=-undefined");
+        println!("cargo:rustc-link-arg=dynamic_lookup");
+    }
 }
