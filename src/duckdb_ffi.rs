@@ -129,15 +129,44 @@ extern "C" {
     pub fn duckdb_vector_get_data(vector: duckdb_vector) -> *mut c_void;
     pub fn duckdb_vector_ensure_validity_writable(vector: duckdb_vector);
     pub fn duckdb_vector_get_validity(vector: duckdb_vector) -> *mut u64;
-    pub fn duckdb_validity_set_row_validity(validity: *mut u64, row: idx_t, valid: bool);
-    pub fn duckdb_validity_set_row_invalid(validity: *mut u64, row: idx_t);
-    pub fn duckdb_validity_set_row_valid(validity: *mut u64, row: idx_t);
     pub fn duckdb_vector_assign_string_element_len(
         vector: duckdb_vector,
         index: idx_t,
         str_: *const c_char,
         str_len: idx_t,
     );
+}
+
+#[inline(always)]
+pub unsafe fn duckdb_validity_set_row_invalid(validity: *mut u64, row: idx_t) {
+    if !validity.is_null() {
+        let entry_idx = (row / 64) as usize;
+        let bit_idx = (row % 64) as usize;
+        *validity.add(entry_idx) &= !(1u64 << bit_idx);
+    }
+}
+
+#[inline(always)]
+pub unsafe fn duckdb_validity_set_row_valid(validity: *mut u64, row: idx_t) {
+    if !validity.is_null() {
+        let entry_idx = (row / 64) as usize;
+        let bit_idx = (row % 64) as usize;
+        *validity.add(entry_idx) |= 1u64 << bit_idx;
+    }
+}
+
+#[inline(always)]
+pub unsafe fn duckdb_validity_row_is_valid(validity: *const u64, row: idx_t) -> bool {
+    if validity.is_null() {
+        true
+    } else {
+        let entry_idx = (row / 64) as usize;
+        let bit_idx = (row % 64) as usize;
+        (*validity.add(entry_idx) & (1u64 << bit_idx)) != 0
+    }
+}
+
+extern "C" {
 
     pub fn duckdb_get_varchar(val: duckdb_value) -> *mut c_char;
     pub fn duckdb_destroy_value(val: *mut duckdb_value);
