@@ -23,7 +23,7 @@ jobs:
             platform: osx_arm64
             target: aarch64-apple-darwin
             cli_archive: duckdb_cli-osx-universal.zip
-          - os: macos-13
+          - os: macos-14
             platform: osx_amd64
             target: x86_64-apple-darwin
             cli_archive: duckdb_cli-osx-universal.zip
@@ -50,6 +50,15 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Download DuckDB lib (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          curl -sLO "https://github.com/duckdb/duckdb/releases/download/v1.2.0/libduckdb-windows-amd64.zip"
+          unzip -q libduckdb-windows-amd64.zip -d duckdb_win
+          echo "DUCKDB_LIB_DIR=${{ github.workspace }}/duckdb_win" >> $GITHUB_ENV
+          echo "LIB=${{ github.workspace }}\\duckdb_win;${LIB}" >> $GITHUB_ENV
+
       - name: Build Rust Extension
         run: cargo build --release --target ${{ matrix.target }}
 
@@ -71,6 +80,16 @@ jobs:
           chmod +x ./duckdb
           ./duckdb -unsigned -c "LOAD './kart.${{ matrix.platform }}.duckdb_extension'; SELECT 1;"
           echo "Extension successfully loaded in DuckDB v1.2.0!"
+
+      - name: Test Load Extension (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          curl -sLO "https://github.com/duckdb/duckdb/releases/download/v1.2.0/${{ matrix.cli_archive }}"
+          unzip -q ${{ matrix.cli_archive }}
+          cp duckdb_win/duckdb.dll .
+          ./duckdb.exe -unsigned -c "LOAD './kart.${{ matrix.platform }}.duckdb_extension'; SELECT 1;"
+          echo "Extension successfully loaded in DuckDB v1.2.0 on Windows!"
 
       - name: Compress Extension (gzip)
         shell: bash
