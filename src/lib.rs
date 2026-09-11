@@ -25,6 +25,17 @@ pub unsafe extern "C" fn kart_init_c_api(
         return false;
     }
 
+    let get_api = match (*access).get_api {
+        Some(f) => f,
+        None => return false,
+    };
+
+    let api = get_api(info, b"v1.2.0\0".as_ptr() as *const c_char) as *const duckdb_ext_api_v1;
+    if api.is_null() {
+        return false;
+    }
+    duckdb_ffi::init_api(api);
+
     let get_db = match (*access).get_database {
         Some(f) => f,
         None => return false,
