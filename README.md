@@ -9,16 +9,20 @@ A native DuckDB extension written in Rust to read geospatial datasets directly f
 - **OGC Standard WKB Geometry**: Automatically parses GeoPackage binary envelopes and converts geometry fields to standard OGC Well-Known Binary (WKB) blobs, ready for use with DuckDB's `spatial` extension (`ST_GeomFromWKB(geom)`).
 - **Multi-Dataset Discovery**: Inspect repositories and list available datasets, feature counts, geometry types, and coordinate reference systems (CRS).
 
-## Building & Packaging
+## Installation
 
-Requires only Rust and Python:
+Download the prebuilt extension binary for your platform:
 
 ```bash
-cd duckdb_kart
-python3 package.py
-```
+# macOS (Apple Silicon)
+curl -sL "https://github.com/blacha/duckdb-kart/releases/latest/download/kart.osx_arm64.duckdb_extension" -o kart.duckdb_extension
 
-This compiles the release `cdylib` and appends DuckDB's 512-byte metadata footer to create `kart.duckdb_extension`.
+# macOS (Intel)
+curl -sL "https://github.com/blacha/duckdb-kart/releases/latest/download/kart.osx_amd64.duckdb_extension" -o kart.duckdb_extension
+
+# Linux (x86_64)
+curl -sL "https://github.com/blacha/duckdb-kart/releases/latest/download/kart.linux_amd64.duckdb_extension" -o kart.duckdb_extension
+```
 
 ## Usage in DuckDB
 
@@ -119,3 +123,16 @@ SELECT fid, sheet_name, ST_AsText(ST_GeomFromWKB(geom)) as wkt
 FROM read_kart('kart-test', 'nz_topo_map_sheet')
 LIMIT 5;
 ```
+
+---
+
+## Building from Source
+
+Requires Rust and Python:
+
+```bash
+cd duckdb_kart
+python3 package.py
+```
+
+This compiles the release `cdylib` in Rust and appends DuckDB's 512-byte metadata footer to produce `kart.duckdb_extension`.
