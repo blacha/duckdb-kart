@@ -63,7 +63,7 @@ jobs:
             --output kart.${{ matrix.platform }}.duckdb_extension
 
       - name: Test Load Extension (macOS & Linux)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.platform != 'osx_amd64'
         shell: bash
         run: |
           curl -sLO "https://github.com/duckdb/duckdb/releases/download/v1.5.5/${{ matrix.cli_archive }}"
@@ -85,14 +85,17 @@ jobs:
         shell: bash
         run: |
           gzip -9 -k kart.${{ matrix.platform }}.duckdb_extension
+          if [ -f kart.${{ matrix.platform }}_gcc4.duckdb_extension ]; then
+            gzip -9 -k kart.${{ matrix.platform }}_gcc4.duckdb_extension
+          fi
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kart-${{ matrix.platform }}
           path: |
-            kart.${{ matrix.platform }}.duckdb_extension
-            kart.${{ matrix.platform }}.duckdb_extension.gz
+            kart.${{ matrix.platform }}*.duckdb_extension
+            kart.${{ matrix.platform }}*.duckdb_extension.gz
           if-no-files-found: error
 
   release:

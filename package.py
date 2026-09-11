@@ -24,6 +24,10 @@ def detect_platform() -> str:
     return f"{system}_{machine}"
 
 def make_footer(platform_tag: str, duckdb_version: str = "v1.2.0", ext_version: str = "v0.1.0") -> bytes:
+    if platform_tag == "linux_amd64":
+        platform_tag = "linux_amd64_gcc4"
+    elif platform_tag == "linux_arm64":
+        platform_tag = "linux_arm64_gcc4"
     chunk0 = b"\x00" * 32
     chunk1 = b"\x00" * 32
     chunk2 = b"\x00" * 32
@@ -98,6 +102,14 @@ def main():
         f.write(footer)
 
     print(f"Successfully packaged {dest_ext} ({os.path.getsize(dest_ext)} bytes)")
+
+    if "linux_amd64" in dest_ext:
+        if "linux_amd64_gcc4" in dest_ext:
+            alias_path = dest_ext.replace("linux_amd64_gcc4", "linux_amd64")
+        else:
+            alias_path = dest_ext.replace("linux_amd64", "linux_amd64_gcc4")
+        shutil.copyfile(dest_ext, alias_path)
+        print(f"Created alias: {alias_path} ({os.path.getsize(alias_path)} bytes)")
 
 if __name__ == "__main__":
     main()
